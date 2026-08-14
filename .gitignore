@@ -1,0 +1,13 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.cache/
+
+# Test artifacts
+*.jpg
+*.png
+!models/*.onnx
+
+# Local dev
+*.log
