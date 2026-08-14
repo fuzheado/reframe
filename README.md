@@ -161,7 +161,13 @@ Then hit `https://<tool>.toolforge.org/crop?file=...&width=...&height=...`.
   in-memory/disk cache or rate limiter before wide use.
 - `gunicorn` sync workers are recommended (one request per worker at a time)
   because the cached YuNet detector is not thread-safe. The `Procfile` uses
-  `--workers=4`.
+  `--workers=2`. Don't raise it blindly: each sync worker is a separate
+  process holding OpenCV + numpy + YuNet (~100–150 MB RSS), and the
+  buildservice pod's default 512 Mi limit OOM-killed the container at
+  `--workers=4` (symptom: intermittent `upstream connect error … reset
+  reason: connection termination` from the ingress). Start the webservice
+  with `-m 1Gi` for headroom: `toolforge webservice buildservice start
+  --mount=none -m 1Gi`.
 - Pin exact dependency versions (`pip freeze > requirements.txt`) for
   reproducible Toolforge deploys.
 - `opencv-python-headless` is pinned to `<5`: OpenCV 5.x removed
