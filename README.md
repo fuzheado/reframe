@@ -130,7 +130,7 @@ stay `commons-smartcrop`; only the tool name matters for the domain.
 ```bash
 # create the tool at https://toolsadmin.wikimedia.org/tools/create
 # create a repo for it, then:
-git push   # a Procfile + runtime.txt are already in this repo
+git push   # a Procfile + .python-version are already in this repo
 
 ssh <user>@login.toolforge.org
 become <tool>

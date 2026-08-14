@@ -24,7 +24,7 @@ deployed to Toolforge** — tool name `reframe` verified available.
 ├── models/         face_detection_yunet_2023mar.onnx (~230 KB, Apache-2.0) + README
 ├── requirements.txt  flask, gunicorn, requests, numpy, opencv-python-headless>=4.8,<5
 ├── Procfile        gunicorn proxy:app --workers=4 (sync workers — YuNet detector not thread-safe)
-└── runtime.txt     python-3.11.9 (Toolforge)
+└── .python-version  3.11 (Toolforge; replaced runtime.txt — modern buildpacks reject it)
 ```
 
 The old directory `~/Documents/ai/commons-smartcrop/` still exists and is
