@@ -6,10 +6,11 @@ observations — `wiki_recall` will surface them.*
 
 ## Status in one line
 
-**Fully working and tested locally** (CLI + `/crop` proxy API + interactive
-`/compare` page): face-aware crops with aspect, tightness, and gravity
-controls, flexible Commons filename input, clean error semantics. **Not yet
-deployed to Toolforge** — tool name `reframe` verified available.
+**Fully working, tested locally, and DEPLOYED to Toolforge** (2026-08-14):
+face-aware crops live at **https://reframe.toolforge.org** — `/crop` API and
+interactive `/compare` page verified (200 JPEG with `X-SmartCrop-Face: yes`,
+404/400 error paths correct). Built via **Toolforge Build Service from GitHub**
+(`github.com/fuzheado/reframe`, branch `main`).
 
 ## Project map
 
@@ -91,10 +92,10 @@ sweep 0.35/0.55/0.9, error paths (400/404/502/415). Test images live in
 
 ## Next steps
 
-1. **Deploy to Toolforge** (Build Service, per README): create tool `reframe`
-   at toolsadmin.wikimedia.org, push to
-   `gitlab.wikimedia.org/toolforge-repos/reframe.git`,
-   `toolforge build start`, `toolforge webservice buildservice start --mount=none`.
+1. ~~Deploy to Toolforge~~ ✅ **DONE 2026-08-14**: Build Service from GitHub
+   (tool `reframe`, domain reframe.toolforge.org, `--mount=none`). Redeploy on
+   code change: `toolforge build start https://github.com/fuzheado/reframe`
+   then `toolforge webservice buildservice restart`.
 2. **Production hardening** (README "Production notes"): rate limiting and/or
    a disk cache before wide public use — the proxy currently has neither.
 3. **Optional**: MediaPipe BlazeFace swap for profile/tilted faces (replace

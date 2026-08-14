@@ -127,6 +127,9 @@ stay `commons-smartcrop`; only the tool name matters for the domain.
 
 ### Option A — Build Service (recommended)
 
+The build service accepts **any public Git repo** — GitHub, GitLab, or Gerrit.
+(Deployed 2026-08-14 from `https://github.com/fuzheado/reframe`.)
+
 ```bash
 # create the tool at https://toolsadmin.wikimedia.org/tools/create
 # create a repo for it, then:
