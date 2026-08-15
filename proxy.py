@@ -280,7 +280,8 @@ def _aspect_selector(current):
 
 def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
     if results:
-        ann, naive, smart, rn, rs, box, iw, ih, api_url, eff = results
+        (ann, naive, smart, rn, rs, box, iw, ih, api_url, css_url,
+         css_pos, src_url, eff) = results
         legend = ("<span style='color:#7fd4ff'>light blue = face</span> · "
                   "<span style='color:#7dff8a'>green = smart crop</span> · "
                   "<span style='color:#ff8080'>red = naive center-crop</span>")
@@ -307,8 +308,22 @@ def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
         <div class="card">
           <h3>Smart crop API URL</h3>
           <p>Use this URL anywhere an image is expected — it returns the
-             selected crop as JPEG:</p>
+             selected crop as JPEG (aspect {aspect_s}, no resize):</p>
           <p class="apilink"><a href="{api_url}">{api_url}</a></p>
+        </div>
+        <div class="card">
+          <h3>CSS crop API URL — no pixels served</h3>
+          <p>Client-side alternative: load the image yourself and let CSS do
+             the reframing. The endpoint returns
+             <code>object-fit</code>/<code>object-position</code> JSON valid
+             for any box of aspect {aspect_s} (size-invariant — any
+             thumbnail size works):</p>
+          <p class="apilink"><a href="{css_url}">{css_url}</a></p>
+          <p>→ <code>object-fit: cover; object-position: {css_pos};</code></p>
+          <p>Live preview — same source, reframed entirely client-side:</p>
+          <img src="{src_url}" alt="CSS crop preview"
+               style="width: 100%; aspect-ratio: {aspect_s.replace(':', ' / ')};
+                      object-fit: cover; object-position: {css_pos};">
         </div>
         <div class="card">
           <h3>Original — {legend}</h3>
@@ -439,10 +454,18 @@ def compare():
     eff = resolve_gravity(gravity, box)
     ann, naive, smart, rn, rs = build_compare(img, aspect, box, tightness, eff)
     api_url = (request.url_root + "crop?file=" + canonical
-               + "&width=300&height=200&gravity=" + gravity)
+               + "&aspect=" + aspect_s + "&gravity=" + gravity)
+    css_url = (request.url_root + "css?file=" + canonical
+               + "&aspect=" + aspect_s + "&gravity=" + gravity)
     if tightness != 0.55:
         api_url += f"&tightness={tightness}"
-    results = (ann, naive, smart, rn, rs, box, iw, ih, api_url, eff)
+        css_url += f"&tightness={tightness}"
+    src_url = ("https://commons.wikimedia.org/wiki/Special:FilePath/"
+               + urllib.parse.quote(canonical) + "?width=600")
+    xp, yp = object_position(rs, iw, ih)
+    css_pos = f"{xp:.1f}% {yp:.1f}%"
+    results = (ann, naive, smart, rn, rs, box, iw, ih, api_url, css_url,
+               css_pos, src_url, eff)
     return _compare_page(file_title, aspect_s, tightness_s, gravity, results, None)
 
 

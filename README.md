@@ -116,8 +116,10 @@ equivalent in MediaWiki titles).
 `GET /compare?file=File:Name.jpg&aspect=1:1&tightness=0.55&gravity=face` — an interactive HTML page
 that shows, for any Commons file: the original annotated with the face box
 (light blue), the smart crop (green) and the naive center-crop (red), plus
-the dedicated naive and smart crops side by side, and a ready-to-use
-`/crop` API URL matching the selected gravity and tightness. Aspect selector: 16:9 · 3:2 ·
+the dedicated naive and smart crops side by side, and ready-to-use
+`/crop` and `/css` API URLs matching the selected aspect, gravity and
+tightness — the `/css` card also shows the object-position and a live
+preview of the image reframed entirely client-side. Aspect selector: 16:9 · 3:2 ·
 4:3 · 1:1 · 3:4 · 2:3 · 9:16, a tightness slider (0.30–0.90), and gravity
 radio buttons (face / auto / center) so the differences are visible side by
 side. `file` is optional — omit it to get the empty form (useful as a
