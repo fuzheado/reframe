@@ -24,12 +24,16 @@ headers unchanged, cache dir on overlay disk (95 GB free, NOT tmpfs) at
 logs a harmless one-time `Control server error: Permission denied: '/data'`
 at boot (non-fatal).
 
-**`eyeline` param DEPLOYED (2026-08-15)**: eyes placeable anywhere in the
-frame (`eyeline=0.30` = classic portrait). Default 0.39 ≈ old behavior (1 px).
-Tightness zooms around the eye line (was: dragged eyes 27%→55% of frame).
-Verified live: three framings byte-identical to local tests (same MD5s),
-/css payload carries eyeline, /compare slider + URLs work, 400 validation
-live. See Next steps #4.
+**Landing page + YuNet thread-safety fix DEPLOYED (2026-08-15, commit
+73bef52)**: GET / is now a full landing page (landing.py) — hero with the
+naive-crop problem statement, live demo (naive vs smart panels, both
+client-side via /css gravity=face|center; default LCCN full-length portrait
+at 16:9 where naive slices the head off), endpoint cards, params table,
+how-it-works, embed examples. Also: _DETECT_LOCK in smartcrop.py — YuNet
+detect() is NOT thread-safe; concurrent calls returned garbage face boxes
+(phantom 34px face → 98x98 crop) under threaded dev server; verified fixed
+(20/20 + 30/30 concurrent requests identical). Production sync workers were
+never affected.
 
 ## Project map
 
