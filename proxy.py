@@ -326,12 +326,20 @@ def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
           <p class="apilink"><a href="{api_url}">{api_url}</a></p>
         </div>
         <div class="card">
+          <h3>Original — {legend}</h3>
+          <img src="{_jpeg_uri(ann)}" alt="annotated original">
+          {note}
+        </div>
+        <div class="row">
+          <div class="card"><h3>Naive center-crop</h3><img src="{_jpeg_uri(naive)}" alt="naive crop"></div>
+          <div class="card"><h3>{smart_title}</h3><img src="{_jpeg_uri(smart)}" alt="smart crop"></div>
+        </div>
+        <div class="card">
           <h3>CSS crop API URL — no pixels served</h3>
           <p>Client-side alternative: load the image yourself and let CSS do
-             the reframing. The endpoint returns
-             <code>object-fit</code>/<code>object-position</code> JSON valid
-             for any box of aspect {aspect_s} (size-invariant — any
-             thumbnail size works):</p>
+             the reframing. The endpoint returns the CSS properties for any
+             box of aspect {aspect_s} (size-invariant — any thumbnail size
+             works):</p>
           <p class="apilink"><a href="{css_url}">{css_url}</a></p>
           <p>→ <code>object-fit: cover; object-position: {css_pos};</code>
              <span class="gsub">(simple — cannot zoom)</span></p>
@@ -345,15 +353,6 @@ def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
                       background: url('{src_url}') no-repeat;
                       background-size: {bg_size};
                       background-position: {css_pos};"></div>
-        </div>
-        <div class="card">
-          <h3>Original — {legend}</h3>
-          <img src="{_jpeg_uri(ann)}" alt="annotated original">
-          {note}
-        </div>
-        <div class="row">
-          <div class="card"><h3>Naive center-crop</h3><img src="{_jpeg_uri(naive)}" alt="naive crop"></div>
-          <div class="card"><h3>{smart_title}</h3><img src="{_jpeg_uri(smart)}" alt="smart crop"></div>
         </div>"""
     else:
         gallery = ""
