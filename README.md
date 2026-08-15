@@ -161,7 +161,9 @@ Errors (plain-text body, proper status):
 1. **Fetch** — resolves the `File:` title via
    [`Special:FilePath?width=1200`](https://commons.wikimedia.org/wiki/Special:FilePath),
    so Commons handles format conversion for free (SVG→PNG, PDF→JPEG, video
-   keyframe) and we get a bounded-size raster to work with.
+   keyframe) and we get a bounded-size raster to work with. Fetches are
+   disk-cached by canonical title (7 days; 404s negative-cached for 10 min) —
+   see [Production notes](#production-notes).
 2. **Detect** — [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet)
    returns a face bounding box (~30 ms CPU). Falls back to OpenCV's bundled
    Haar cascade if the ONNX model is missing.
@@ -259,8 +261,24 @@ Then hit `https://<tool>.toolforge.org/crop?file=...&width=...&height=...`.
 
 ### Production notes
 
-- The proxy has no rate limiting or auth. For a public tool, add a simple
-  in-memory/disk cache or rate limiter before wide use.
+- **Rate limiting & caching (added 2026-08-15):** the proxy has an upstream
+  disk cache (`cache.py`), a per-IP rate limiter (`ratelimit.py`), and fetch
+  guards, all tunable via env vars (Toolforge:
+  `toolforge envvars set KEY=value`):
+
+  | Env var | Default | Meaning |
+  |---------|---------|---------|
+  | `CACHE_DIR` | `./cache` | Disk cache location. Pod-local — deploy uses `--mount=none`, so it resets on redeploy; fine, CPU is cheap, the cache's job is collapsing duplicate fetches within a deployment |
+  | `CACHE_MAX_BYTES` | 2 GiB | Evict-oldest cap for the cache dir |
+  | `CACHE_TTL` | 604800 (7 d) | TTL for fetched images |
+  | `CACHE_TTL_NOT_FOUND` | 600 (10 min) | Negative-cache TTL for 404s — blocks nonexistent-file hammering |
+  | `RATE_LIMIT` | 120 | Fixed-window limit per client IP per minute. **Per worker**: with 2 sync workers the effective cap is 2× — deliberate; a soft guard, the cache does the real abuse work |
+  | `FETCH_MAX_BYTES` | 20 MiB | Abort upstream fetches larger than this (bounds memory) |
+  | `FETCH_CONCURRENCY` | 4 | Max simultaneous Commons fetches per process (semaphore) |
+
+  Rate-limited responses are 429 with `Retry-After` (never `Cache-Control:
+  immutable`). Every request logs `METHOD path -> status (cache hit|miss,
+  ms, ip)` — that's how you watch hit rate.
 - `gunicorn` sync workers are recommended (one request per worker at a time)
   because the cached YuNet detector is not thread-safe. The `Procfile` uses
   `--workers=2`. Don't raise it blindly: each sync worker is a separate

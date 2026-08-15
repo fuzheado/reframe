@@ -20,19 +20,46 @@ Deploy on Toolforge (see README) -- bind to $PORT, add an OSI license.
 import base64
 import io
 import json
+import logging
 import os
 import re
+import threading
+import time
 import urllib.parse
 
 import cv2
 import numpy as np
 import requests
-from flask import Flask, Response, request
+from flask import Flask, Response, g, request
 
+from cache import DiskCache
 from compare_web import build_compare
+from ratelimit import RateLimiter
 from smartcrop import detect_face, smart_crop, center_crop, object_position, css_recipe
 
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s")
+
 app = Flask(__name__)
+
+# --------------------------------------------------------------------------- #
+# Production hardening: upstream disk cache + per-IP rate limit + fetch guards.
+# All tunable via env vars (Toolforge: `toolforge envvars set KEY=value`).
+# The disk cache lives on the pod's ephemeral filesystem (deploy uses
+# --mount=none), so it resets on redeploy — fine: CPU is cheap, the cache's
+# job is collapsing duplicate upstream fetches within a deployment.
+# --------------------------------------------------------------------------- #
+CACHE_DIR = os.environ.get("CACHE_DIR", "./cache")
+CACHE_MAX_BYTES = int(os.environ.get("CACHE_MAX_BYTES", str(2 * 1024 ** 3)))
+CACHE_TTL = int(os.environ.get("CACHE_TTL", str(7 * 24 * 3600)))        # 7 days
+CACHE_TTL_NOT_FOUND = int(os.environ.get("CACHE_TTL_NOT_FOUND", "600"))  # 10 min
+RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "120"))   # per min, per worker
+FETCH_MAX_BYTES = int(os.environ.get("FETCH_MAX_BYTES", str(20 * 1024 * 1024)))
+FETCH_CONCURRENCY = int(os.environ.get("FETCH_CONCURRENCY", "4"))
+
+CACHE = DiskCache(CACHE_DIR, max_bytes=CACHE_MAX_BYTES, max_ttl=CACHE_TTL)
+LIMITER = RateLimiter(RATE_LIMIT)
+_FETCH_SEM = threading.Semaphore(FETCH_CONCURRENCY)
 
 UA = os.environ.get(
     "WIKIMEDIA_USER_AGENT",
@@ -47,17 +74,83 @@ SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": UA})
 
 
+def client_ip():
+    """Best-effort client address: first X-Forwarded-For hop (set by the
+    Toolforge ingress) with remote_addr as fallback."""
+    xff = request.headers.get("X-Forwarded-For", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.remote_addr or "unknown"
+
+
+@app.before_request
+def _rate_limit_and_mark():
+    g.cache_hit = False
+    g._start = time.monotonic()
+    if not LIMITER.allow(client_ip()):
+        retry = LIMITER.retry_after(client_ip())
+        return Response(
+            f"rate limit exceeded (max {RATE_LIMIT}/min per IP); "
+            f"retry in {retry}s",
+            status=429, headers={"Retry-After": str(retry)})
+
+
+@app.after_request
+def _log_request(resp):
+    ms = (time.monotonic() - g.get("_start", time.monotonic())) * 1000
+    hit = "hit" if g.get("cache_hit") else "miss"
+    app.logger.info("%s %s -> %d (cache %s, %.0f ms, ip %s)",
+                    request.method, request.path, resp.status_code, hit, ms,
+                    client_ip())
+    return resp
+
+
 def fetch_commons(file_title):
     """Resolve a File:... title to decoded image bytes via Special:FilePath.
 
     Piggybacks on Commons' thumbnail pipeline, so SVG -> PNG, PDF/DjVu -> JPEG,
     and video keyframe extraction all work for free (no per-format code here).
+
+    Disk-cached by canonical title: 200s for CACHE_TTL (7 days), 404s for
+    CACHE_TTL_NOT_FOUND (10 min, negative caching). Network errors are never
+    cached. Raises requests.HTTPError (404) / requests.RequestException
+    (fetch failure) — same contract as before, so route error handling is
+    unchanged.
     """
+    key = "file:" + file_title
+    entry = CACHE.get(key)
+    if entry is not None:
+        status, body = entry
+        if status == 404:
+            raise requests.HTTPError("cached 404 for " + file_title)
+        g.cache_hit = True
+        return body
+
     url = ("https://commons.wikimedia.org/wiki/Special:FilePath/"
            + urllib.parse.quote(file_title) + "?width=" + str(MAX_DETECT_SIDE))
-    r = SESSION.get(url, timeout=20)
-    r.raise_for_status()
-    return r.content
+    with _FETCH_SEM:
+        r = SESSION.get(url, timeout=20, stream=True)
+        if r.status_code == 404:
+            r.close()
+            CACHE.put(key, b"", status=404, ttl=CACHE_TTL_NOT_FOUND)
+            raise requests.HTTPError("404 from Commons: " + file_title)
+        if r.status_code != 200:
+            r.close()
+            raise requests.RequestException(
+                f"Commons returned HTTP {r.status_code} for {file_title}")
+        chunks, total = [], 0
+        for chunk in r.iter_content(64 * 1024):
+            total += len(chunk)
+            if total > FETCH_MAX_BYTES:
+                r.close()
+                raise requests.RequestException(
+                    f"fetch too large for {file_title} "
+                    f"(> {FETCH_MAX_BYTES} bytes)")
+            chunks.append(chunk)
+        body = b"".join(chunks)
+    CACHE.put(key, body, status=200,
+              content_type=r.headers.get("Content-Type", ""))
+    return body
 
 def decode_img(data):
     arr = np.frombuffer(data, np.uint8)

@@ -15,12 +15,21 @@ reframe preview). Verified live: 200 JPEG with `X-SmartCrop-Face: yes`,
 Built via **Toolforge Build Service from GitHub**
 (`github.com/fuzheado/reframe`, branch `main`).
 
+**Production hardening implemented and tested locally (2026-08-15), NOT yet
+redeployed**: upstream disk cache (`cache.py`) + per-IP rate limiter
+(`ratelimit.py`) + fetch guards (byte cap, concurrency semaphore, request
+logging). Verified: miss 325 ms → hit 26 ms; 27 allowed then 429 +
+`Retry-After: 56` at limit 30/min; negative 404 caching; all endpoints
+cached. Next deploy picks it up (build → restart webservice).
+
 ## Project map
 
 ```
 ~/Documents/ai/reframe/
 ├── README.md       full reference: API, compare page, deploy, production notes
 ├── HANDOFF.md      ← you are here
+├── cache.py        stdlib disk cache: sha1-keyed files, atomic replace, ttl + size sweeps
+├── ratelimit.py    fixed-window per-IP rate limiter (in-process; per-worker semantics)
 ├── smartcrop.py    core library: YuNet/Haar face detection + crop geometry + CLI (--css flag)
 ├── proxy.py        Flask app: GET /crop (JPEG) + GET /css (CSS properties JSON) + GET /compare (interactive page)
 ├── compare.py      CLI dev tool: naive-vs-smart montage JPEG
@@ -118,6 +127,16 @@ the exact one; plain object-fit cannot zoom, see README "zoom caveat").
   (Obama family portrait, Khagdaev 02.jpg).
 - `Special:FilePath?width=1200` may return a width slightly ≠1200 (observed
   1280) — harmless, crops verified correct.
+- **Flask logging gotcha**: `app.logger.info()` is silently dropped in
+  non-debug Flask (root logger defaults to WARNING). `proxy.py` calls
+  `logging.basicConfig(level=INFO)` so the per-request cache-hit log lines
+  appear (stderr — captured by Toolforge). Don't remove it.
+- **Cache is ephemeral**: buildservice deploy uses `--mount=none`, so
+  `CACHE_DIR` (default `./cache`) lives on the pod's overlay fs and resets on
+  every redeploy/restart. Expected and fine — see README Production notes.
+- **Rate limiter is per-worker**: 2 sync workers ⇒ effective cap = 2 ×
+  `RATE_LIMIT`. Shared-state (SQLite) limiter is the next step if exactness
+  ever matters; not needed for a soft guard.
 
 ## Next steps
 
@@ -125,8 +144,12 @@ the exact one; plain object-fit cannot zoom, see README "zoom caveat").
    (tool `reframe`, domain reframe.toolforge.org, `--mount=none`). Redeploy on
    code change: `toolforge build start https://github.com/fuzheado/reframe`
    then `toolforge webservice buildservice restart`.
-2. **Production hardening** (README "Production notes"): rate limiting and/or
-   a disk cache before wide public use — the proxy currently has neither.
+2. ~~Production hardening~~ ✅ **DONE locally 2026-08-15** (upstream disk
+   cache + rate limiter + fetch guards; tested — see status line). **TODO:
+   deploy**: `git push` → `toolforge build start
+   https://github.com/fuzheado/reframe` → `toolforge webservice buildservice
+   restart`; then check `df -h` in the pod and confirm `cache hit` lines in
+   `toolforge logs`.
 3. **Optional**: detector upgrade for profile/tilted/small faces — SCRFD-2.5G
    (best accuracy/speed, ~3 MB, no new pip dep via `cv2.dnn`) or MediaPipe
    BlazeFace; both plug into `detect_face()` in smartcrop.py (crop geometry
