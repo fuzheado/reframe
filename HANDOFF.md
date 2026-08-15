@@ -24,11 +24,12 @@ headers unchanged, cache dir on overlay disk (95 GB free, NOT tmpfs) at
 logs a harmless one-time `Control server error: Permission denied: '/data'`
 at boot (non-fatal).
 
-**`eyeline` param implemented + tested locally (2026-08-15), NOT yet
-deployed**: eyes can now be placed anywhere in the frame
-(`eyeline=0.30` = classic portrait, eyes a third down). Default 0.39 ≈ old
-behavior (1 px). Tightness now zooms around the eye line (was: dragged eyes
-from 27%→55% of frame). See Next steps #4.
+**`eyeline` param DEPLOYED (2026-08-15)**: eyes placeable anywhere in the
+frame (`eyeline=0.30` = classic portrait). Default 0.39 ≈ old behavior (1 px).
+Tightness zooms around the eye line (was: dragged eyes 27%→55% of frame).
+Verified live: three framings byte-identical to local tests (same MD5s),
+/css payload carries eyeline, /compare slider + URLs work, 400 validation
+live. See Next steps #4.
 
 ## Project map
 
