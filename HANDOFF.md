@@ -15,12 +15,14 @@ reframe preview). Verified live: 200 JPEG with `X-SmartCrop-Face: yes`,
 Built via **Toolforge Build Service from GitHub**
 (`github.com/fuzheado/reframe`, branch `main`).
 
-**Production hardening implemented and tested locally (2026-08-15), NOT yet
-redeployed**: upstream disk cache (`cache.py`) + per-IP rate limiter
-(`ratelimit.py`) + fetch guards (byte cap, concurrency semaphore, request
-logging). Verified: miss 325 ms → hit 26 ms; 27 allowed then 429 +
-`Retry-After: 56` at limit 30/min; negative 404 caching; all endpoints
-cached. Next deploy picks it up (build → restart webservice).
+**Production hardening DEPLOYED to Toolforge (2026-08-15)**: upstream disk
+cache (`cache.py`) + per-IP rate limiter (`ratelimit.py`) + fetch guards
+(byte cap, concurrency semaphore, request logging). Verified live: cold crop
+miss 922 ms → repeat crop hit 463 ms (logs show `cache hit`), /css cached,
+headers unchanged, cache dir on overlay disk (95 GB free, NOT tmpfs) at
+/workspace/cache with the same sha1 keyed files as local tests. Gunicorn
+logs a harmless one-time `Control server error: Permission denied: '/data'`
+at boot (non-fatal).
 
 ## Project map
 
@@ -144,12 +146,13 @@ the exact one; plain object-fit cannot zoom, see README "zoom caveat").
    (tool `reframe`, domain reframe.toolforge.org, `--mount=none`). Redeploy on
    code change: `toolforge build start https://github.com/fuzheado/reframe`
    then `toolforge webservice buildservice restart`.
-2. ~~Production hardening~~ ✅ **DONE locally 2026-08-15** (upstream disk
-   cache + rate limiter + fetch guards; tested — see status line). **TODO:
-   deploy**: `git push` → `toolforge build start
-   https://github.com/fuzheado/reframe` → `toolforge webservice buildservice
-   restart`; then check `df -h` in the pod and confirm `cache hit` lines in
-   `toolforge logs`.
+2. ~~Production hardening~~ ✅ **DONE + DEPLOYED 2026-08-15** (upstream disk
+   cache + rate limiter + fetch guards). Deploy: `git push` → `toolforge build
+   start https://github.com/fuzheado/reframe` → `toolforge webservice
+   buildservice restart`. Verified live via `kubectl logs`: miss 922 ms → hit
+   463 ms; cache dir on overlay disk at /workspace/cache (95 GB free).
+   Defaults suffice — no envvars set on Toolforge. Future redeploys: same
+   build+restart flow (cache resets each time — expected).
 3. **Optional**: detector upgrade for profile/tilted/small faces — SCRFD-2.5G
    (best accuracy/speed, ~3 MB, no new pip dep via `cv2.dnn`) or MediaPipe
    BlazeFace; both plug into `detect_face()` in smartcrop.py (crop geometry
