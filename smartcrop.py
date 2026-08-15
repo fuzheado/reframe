@@ -111,13 +111,27 @@ def center_crop(iw, ih, aspect):
     return (x, y, w, h)
 
 
-def smart_crop(img, aspect, box, tightness=0.55):
+# Eyes sit ~30% of the face-box height below its top (YuNet boxes span roughly
+# forehead -> chin). Used to place the eye line in the crop. A fixed detector
+# means this is a calibratable constant, not a per-image guess.
+EYE_RATIO = 0.30
+
+def smart_crop(img, aspect, box, tightness=0.55, eyeline=0.39):
     """Compute a crop rectangle of the given aspect that keeps the face visible.
 
     tightness: fraction of the crop height filled by the head region.
     0.55 (default) = head + some context; 1.0 = face-filling headshot;
     lower values (e.g. 0.35) = looser, more of the subject/scene visible.
     Only applies when a face box is given; center fallback is unaffected.
+
+    eyeline: fraction of the crop height (from the top) where the eye line
+    sits. 0.30 = classic portrait placement (eyes a third of the way down);
+    lower = face higher in the frame, higher = more headroom. Default 0.39
+    reproduces the pre-eyeline headroom constant (0.13) at tightness 0.55.
+    The eye line is estimated at EYE_RATIO of the face-box height; tightness
+    zooms AROUND the eye line, so zooming no longer shifts the eyes in the
+    frame (previously: eye_frac = 0.13 + 0.47*tightness, so tight crops
+    pushed the eyes toward the bottom).
     """
     ih, iw = img.shape[:2]
 
@@ -152,8 +166,9 @@ def smart_crop(img, aspect, box, tightness=0.55):
     # Horizontal: center on the face.
     cx = min(max(face_cx, Wc / 2.0), iw - Wc / 2.0)
 
-    # Vertical: put the top of the head ~13% down from the crop top (headroom).
-    top_of_crop = min(max(top - 0.13 * Hc, 0.0), ih - Hc)
+    # Vertical: place the estimated eye line at `eyeline` of the crop height.
+    eye_y = fy + EYE_RATIO * fh
+    top_of_crop = min(max(eye_y - eyeline * Hc, 0.0), ih - Hc)
 
     x = int(cx - Wc / 2.0)
     y = int(top_of_crop)
@@ -222,15 +237,16 @@ def css_recipe(rect, iw, ih, aspect):
     return pos, bg_size, matches_exact, (round(cov_w), round(cov_h))
 
 
-def crop_image(img, aspect, gravity="face", tightness=0.55):
+def crop_image(img, aspect, gravity="face", tightness=0.55, eyeline=0.39):
     """High-level helper: return (cropped_img, rect, face_box).
 
     gravity: 'face' (face-aware, center fallback), 'center' (always center).
     tightness: 0-1, fraction of crop height filled by the head (see smart_crop).
+    eyeline: 0-0.9, eye line as fraction of crop height from the top.
     """
     ih, iw = img.shape[:2]
     box = detect_face(img) if gravity == "face" else None
-    rect = (smart_crop(img, aspect, box, tightness)
+    rect = (smart_crop(img, aspect, box, tightness, eyeline)
             if gravity == "face" else center_crop(iw, ih, aspect))
     x, y, w, h = rect
     return img[y:y + h, x:x + w], rect, box
@@ -247,6 +263,9 @@ def main():
     ap.add_argument("--size", default=None, help="target WxH, e.g. 640x360")
     ap.add_argument("--tightness", type=float, default=0.55,
                     help="head fills this fraction of crop height (0.3 loose - 1.0 tight headshot)")
+    ap.add_argument("--eyeline", type=float, default=0.39,
+                    help="eye line at this fraction of crop height from the top "
+                         "(0.30 = classic portrait, eyes a third down; default 0.39)")
     ap.add_argument("--out", default=None, help="output path")
     ap.add_argument("--draw", action="store_true",
                     help="also save an annotated image showing face box + crop")
@@ -265,6 +284,8 @@ def main():
 
     if not (0 < args.tightness <= 1):
         ap.error("--tightness must be between 0 and 1 (e.g. 0.55)")
+    if not (0 <= args.eyeline <= 0.9):
+        ap.error("--eyeline must be between 0 and 0.9 (e.g. 0.30)")
 
     img = cv2.imread(args.input)
     if img is None:
@@ -275,7 +296,7 @@ def main():
     if box is None:
         print("no face detected -> using center crop")
 
-    x, y, w, h = smart_crop(img, aspect, box, args.tightness)
+    x, y, w, h = smart_crop(img, aspect, box, args.tightness, args.eyeline)
     crop = img[y:y + h, x:x + w]
 
     if args.size:
@@ -286,7 +307,7 @@ def main():
 
     print(f"input {iw}x{ih}  aspect={iw/ih:.3f}")
     print(f"face box = {box}")
-    print(f"tightness = {args.tightness}")
+    print(f"tightness = {args.tightness}  eyeline = {args.eyeline}")
     print(f"crop     = ({x},{y}) {w}x{h}  aspect={w/h:.3f}")
     print(f"wrote    = {out}")
 

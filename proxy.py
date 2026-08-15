@@ -196,8 +196,9 @@ def normalize_file_input(s):
 def _parse_params():
     """Shared validation for /crop and /css.
 
-    Returns ((canonical, aspect, aspect_s, w, h, tightness, gravity), None) on
-    success, or (None, error_message) — message is plain text for a 400.
+    Returns ((canonical, aspect, aspect_s, w, h, tightness, gravity, eyeline),
+    None) on success, or (None, error_message) — message is plain text for a
+    400.
     """
     file_title = request.args.get("file", "")
     canonical = normalize_file_input(file_title)
@@ -228,19 +229,30 @@ def _parse_params():
         if not (0 < tightness <= 1):
             return None, "tightness must be between 0 (loose) and 1 (face-filling)"
 
+    eyeline = 0.39
+    eyeline_s = request.args.get("eyeline")
+    if eyeline_s:
+        try:
+            eyeline = float(eyeline_s)
+        except ValueError:
+            return None, "eyeline must be a number like 0.30"
+        if not (0 <= eyeline <= 0.9):
+            return None, ("eyeline must be between 0 (eyes near the top) "
+                          "and 0.9 (eyes near the bottom)")
+
     gravity = request.args.get("gravity", "face")
     if gravity not in ("face", "auto", "center"):
         return None, "gravity must be face, auto, or center"
-    return (canonical, aspect, aspect_s, w, h, tightness, gravity), None
+    return (canonical, aspect, aspect_s, w, h, tightness, gravity, eyeline), None
 
 
-def _compute_rect(img, aspect, tightness, gravity):
+def _compute_rect(img, aspect, tightness, gravity, eyeline):
     """Run detection + geometry. Returns (rect, eff) where eff is the effective
     gravity ('face' | 'center') and rect is (x, y, w, h) in source pixels."""
     ih, iw = img.shape[:2]
     box = detect_face(img) if gravity in ("face", "auto") else None
     eff = resolve_gravity(gravity, box)
-    rect = (smart_crop(img, aspect, box, tightness)
+    rect = (smart_crop(img, aspect, box, tightness, eyeline)
             if eff == "face" else center_crop(iw, ih, aspect))
     return rect, eff
 
@@ -250,7 +262,7 @@ def crop():
     params, err = _parse_params()
     if err:
         return Response(err, status=400)
-    canonical, aspect, _aspect_s, w, h, tightness, gravity = params
+    canonical, aspect, _aspect_s, w, h, tightness, gravity, eyeline = params
 
     try:
         raw = fetch_commons(canonical)
@@ -262,7 +274,7 @@ def crop():
     if img is None:
         return Response("cannot decode image", status=415)
 
-    rect, eff = _compute_rect(img, aspect, tightness, gravity)
+    rect, eff = _compute_rect(img, aspect, tightness, gravity, eyeline)
     x, y, cw, ch = rect
     out = img[y:y + ch, x:x + cw]
 
@@ -293,7 +305,7 @@ def css_style():
     params, err = _parse_params()
     if err:
         return Response(err, status=400)
-    canonical, aspect, aspect_s, w, h, tightness, gravity = params
+    canonical, aspect, aspect_s, w, h, tightness, gravity, eyeline = params
 
     try:
         raw = fetch_commons(canonical)
@@ -306,7 +318,7 @@ def css_style():
         return Response("cannot decode image", status=415)
 
     ih, iw = img.shape[:2]
-    rect, eff = _compute_rect(img, aspect, tightness, gravity)
+    rect, eff = _compute_rect(img, aspect, tightness, gravity, eyeline)
     x, y, cw, ch = rect
     pos, bg_size, matches_exact, cover_window = css_recipe(rect, iw, ih, aspect)
     src_url = ("https://commons.wikimedia.org/wiki/Special:FilePath/"
@@ -317,6 +329,7 @@ def css_style():
         "aspect": aspect_s or (f"{w}:{h}" if w and h else "1:1"),
         "gravity": gravity,
         "tightness": tightness,
+        "eyeline": eyeline,
         "face_detected": eff == "face",
         "object_fit": "cover",
         "object_position": pos,
@@ -379,10 +392,11 @@ def _aspect_selector(current):
         for o in opts)
 
 
-def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
+def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error,
+                  eyeline_s="0.39"):
     if results:
         (ann, naive, smart, rn, rs, box, iw, ih, api_url, css_url,
-         css_pos, src_url, bg_size, matches_exact, css_exact, eff) = results
+         css_pos, src_url, bg_size, matches_exact, css_exact, eff, eyeline) = results
         legend = ("<span style='color:#7fd4ff'>light blue = face</span> · "
                   "<span style='color:#7dff8a'>green = smart crop</span> · "
                   "<span style='color:#ff8080'>red = naive center-crop</span>")
@@ -398,7 +412,7 @@ def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
             note = (f"<p>Face box ({fx},{fy}) {fw}x{fh} · "
                     f"naive crop ({rn[0]},{rn[1]}) {rn[2]}x{rn[3]} · "
                     f"smart crop ({rs[0]},{rs[1]}) {rs[2]}x{rs[3]} · "
-                    f"source {iw}x{ih}</p>")
+                    f"source {iw}x{ih} · eyeline {eyeline}</p>")
         if eff == "face":
             smart_title = "Smart face-aware crop"
         elif gravity == "center":
@@ -494,6 +508,10 @@ def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
   <input type="range" id="tightness" name="tightness" min="0.30" max="0.90"
          step="0.05" value="{tightness_s}" oninput="document.getElementById('tightness_val').textContent=this.value">
   <span id="tightness_val" class="tightval">{tightness_s}</span>
+  <label for="eyeline">Eyeline</label>
+  <input type="range" id="eyeline" name="eyeline" min="0.10" max="0.70"
+         step="0.01" value="{eyeline_s}" oninput="document.getElementById('eyeline_val').textContent=this.value">
+  <span id="eyeline_val" class="tightval">{eyeline_s}</span>
   <fieldset class="grav">
     <legend>Gravity — what the smart crop does with a face</legend>
     <label><input type="radio" name="gravity" value="face"{" checked" if gravity == "face" else ""}> Face
@@ -511,7 +529,12 @@ def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
   <code>Khagdaev_02.jpg</code> · <code>https://commons.wikimedia.org/wiki/File:Khagdaev 02.jpg</code></p>
 <p class="hint"><b>Tightness</b> = how much of the crop height the head region fills:
   <code>0.30</code> loose (lots of context) · <code>0.55</code> default ·
-  <code>0.90</code> tight headshot. Face-only; naive center crops are unaffected.</p>
+  <code>0.90</code> tight headshot. Face-only; naive center crops are unaffected.
+  Tightness zooms around the eye line — it no longer shifts the eyes in the frame.</p>
+<p class="hint"><b>Eyeline</b> = where the eye line sits in the crop, as a fraction
+  of the frame height from the top: <code>0.30</code> classic portrait (eyes a
+  third of the way down) · <code>0.39</code> default · <code>0.60</code> lots of
+  headroom (face low in frame). Face-only.</p>
 {err_html}
 {gallery}
 <p class="meta">Reframe compare · face detection via YuNet · <a href="/">proxy API</a></p>
@@ -524,48 +547,66 @@ def compare():
     canonical = normalize_file_input(file_title)
     aspect_s = request.args.get("aspect", "1:1")
     tightness_s = request.args.get("tightness", "0.55")
+    eyeline_s = request.args.get("eyeline", "0.39")
     gravity = request.args.get("gravity", "face")
     if gravity not in ("face", "auto", "center"):
-        return _compare_page(file_title, aspect_s, tightness_s, "face", None,
-                             f"gravity must be face, auto, or center (got '{gravity}')")
+        return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
+                             f"gravity must be face, auto, or center (got '{gravity}')",
+                             eyeline_s)
     m = re.match(r"^(\d+):(\d+)$", aspect_s)
     if not m:
         return _compare_page(file_title, "1:1", tightness_s, gravity, None,
-                             f"aspect must be like 16:9 (got '{aspect_s}')")
+                             f"aspect must be like 16:9 (got '{aspect_s}')",
+                             eyeline_s)
     aspect = int(m.group(1)) / int(m.group(2))
 
     try:
         tightness = float(tightness_s)
     except ValueError:
         return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
-                             f"tightness must be a number like 0.55 (got '{tightness_s}')")
+                             f"tightness must be a number like 0.55 (got '{tightness_s}')",
+                             eyeline_s)
     if not (0 < tightness <= 1):
         return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
-                             "tightness must be between 0 (loose) and 1 (face-filling)")
+                             "tightness must be between 0 (loose) and 1 (face-filling)",
+                             eyeline_s)
+
+    try:
+        eyeline = float(eyeline_s)
+    except ValueError:
+        return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
+                             f"eyeline must be a number like 0.30 (got '{eyeline_s}')",
+                             eyeline_s)
+    if not (0 <= eyeline <= 0.9):
+        return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
+                             "eyeline must be between 0 (eyes near the top) and 0.9 (eyes near the bottom)",
+                             eyeline_s)
 
     if not file_title:
-        return _compare_page(file_title, aspect_s, tightness_s, gravity, None, None)
+        return _compare_page(file_title, aspect_s, tightness_s, gravity, None, None,
+                             eyeline_s)
     if canonical is None:
         return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
-                             "that doesn't look like a valid Commons file name")
+                             "that doesn't look like a valid Commons file name",
+                             eyeline_s)
 
     try:
         raw = fetch_commons(canonical)
     except requests.HTTPError:
         return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
-                             "file not found on Commons: " + file_title)
+                             "file not found on Commons: " + file_title, eyeline_s)
     except requests.RequestException:
         return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
-                             "failed to fetch file from Commons")
+                             "failed to fetch file from Commons", eyeline_s)
     img = decode_img(raw)
     if img is None:
         return _compare_page(file_title, aspect_s, tightness_s, gravity, None,
-                             "cannot decode image")
+                             "cannot decode image", eyeline_s)
 
     ih, iw = img.shape[:2]
     box = detect_face(img) if gravity in ("face", "auto") else None
     eff = resolve_gravity(gravity, box)
-    ann, naive, smart, rn, rs = build_compare(img, aspect, box, tightness, eff)
+    ann, naive, smart, rn, rs = build_compare(img, aspect, box, tightness, eff, eyeline)
     api_url = (request.url_root + "crop?file=" + canonical
                + "&aspect=" + aspect_s + "&gravity=" + gravity)
     css_url = (request.url_root + "css?file=" + canonical
@@ -573,13 +614,17 @@ def compare():
     if tightness != 0.55:
         api_url += f"&tightness={tightness}"
         css_url += f"&tightness={tightness}"
+    if eyeline != 0.39:
+        api_url += f"&eyeline={eyeline}"
+        css_url += f"&eyeline={eyeline}"
     src_url = ("https://commons.wikimedia.org/wiki/Special:FilePath/"
                + urllib.parse.quote(canonical) + "?width=600")
     css_pos, bg_size, matches_exact, _cov = css_recipe(rs, iw, ih, aspect)
     css_exact = f"background-size: {bg_size}; background-position: {css_pos};"
     results = (ann, naive, smart, rn, rs, box, iw, ih, api_url, css_url,
-               css_pos, src_url, bg_size, matches_exact, css_exact, eff)
-    return _compare_page(file_title, aspect_s, tightness_s, gravity, results, None)
+               css_pos, src_url, bg_size, matches_exact, css_exact, eff, eyeline)
+    return _compare_page(file_title, aspect_s, tightness_s, gravity, results, None,
+                         eyeline_s)
 
 
 if __name__ == "__main__":

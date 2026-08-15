@@ -40,14 +40,15 @@ def _crop(img, rect):
     return img[y:y + h, x:x + w]
 
 
-def build_compare(img, aspect, box, tightness=0.55, smart_gravity="face"):
+def build_compare(img, aspect, box, tightness=0.55, smart_gravity="face", eyeline=0.39):
     """Return (annotated, naive_crop, smart_crop, rect_naive, rect_smart).
 
     smart_gravity: effective gravity for the smart panel ('face' or 'center').
+    eyeline: eye line as fraction of crop height (see smart_crop).
     """
     ih, iw = img.shape[:2]
     rect_naive = center_crop(iw, ih, aspect)
-    rect_smart = (smart_crop(img, aspect, box, tightness)
+    rect_smart = (smart_crop(img, aspect, box, tightness, eyeline)
                   if smart_gravity == "face" else rect_naive)
 
     ann = img.copy()

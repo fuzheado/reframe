@@ -24,6 +24,12 @@ headers unchanged, cache dir on overlay disk (95 GB free, NOT tmpfs) at
 logs a harmless one-time `Control server error: Permission denied: '/data'`
 at boot (non-fatal).
 
+**`eyeline` param implemented + tested locally (2026-08-15), NOT yet
+deployed**: eyes can now be placed anywhere in the frame
+(`eyeline=0.30` = classic portrait, eyes a third down). Default 0.39 ≈ old
+behavior (1 px). Tightness now zooms around the eye line (was: dragged eyes
+from 27%→55% of frame). See Next steps #4.
+
 ## Project map
 
 ```
@@ -75,9 +81,9 @@ zoom). Test images live in `/tmp/smartcrop-test/`.
 
 ## API quick reference
 
-`GET /crop?file=...&width=&height=|aspect=&gravity=&tightness=` — cropped JPEG
+`GET /crop?file=...&width=&height=|aspect=&gravity=&tightness=&eyeline=` — cropped JPEG
 
-`GET /css?file=...&aspect=&gravity=&tightness=` — **JSON with CSS properties**
+`GET /css?file=...&aspect=&gravity=&tightness=&eyeline=` — **JSON with CSS properties**
 for a client-side crop (no pixels served): `object-position` percentages,
 `css` / `background_css` (no-zoom variants), **`css_exact`** — the
 `background-size` + `background-position` zoom recipe that reproduces /crop
@@ -97,7 +103,12 @@ the exact one; plain object-fit cannot zoom, see README "zoom caveat").
   are behaviorally identical today** (face if found, else center); `auto` is
   the reserved semantics for future subject-aware detection
 - `tightness` — 0–1, fraction of crop height filled by head region; default
-  0.55; face-aware only
+  0.55; face-aware only; zooms around the eye line (placement stays put)
+- `eyeline` — 0–0.9, eye line as fraction of frame height from the top;
+  default 0.39 (≈ old 0.13 headroom constant); `0.30` = classic portrait;
+  face-aware only. Eyes assumed at 30% of the YuNet face-box height
+  (`EYE_RATIO` in smartcrop.py) — a fixed detector means a fixed, calibratable
+  constant
 - Headers: `Cache-Control: public, max-age=604800, immutable`,
   `X-SmartCrop-Face: yes|no`
 - Errors: 400 (bad param), 404 (file not on Commons), 502 (fetch failed),
@@ -158,5 +169,10 @@ the exact one; plain object-fit cannot zoom, see README "zoom caveat").
    BlazeFace; both plug into `detect_face()` in smartcrop.py (crop geometry
    unchanged). See README "Detector options" for the full ladder incl.
    WIDER FACE hard AP figures.
-4. **Optional**: per-call headroom control (the 0.13 constant) if tightness
-   alone isn't enough for some consumers.
+4. ~~Optional: per-call headroom control (the 0.13 constant)~~ ✅ **DONE
+   2026-08-15**: replaced the hardcoded 0.13 headroom with an `eyeline` param
+   (0–0.9, default 0.39 ≈ old behavior; 0.30 = classic portrait eyes-a-third-
+   down). Tightness now zooms around the eye line instead of dragging it down
+   (old: eye_frac = 0.13 + 0.47×tightness → eyes drifted 27%→55%). Wired
+   through CLI (--eyeline), /crop, /css payload, and /compare (new slider +
+   URLs). Eye position estimated at 30% of face-box height (EYE_RATIO).

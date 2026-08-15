@@ -58,7 +58,8 @@ python proxy.py
 | `width` / `height` | either | Exact output size in px. Crops to that aspect, then scales. |
 | `aspect` | either | Target ratio instead of exact size, e.g. `16:9`, `1:1`, `9:16` |
 | `gravity` | no | `face` (default), `center`, or `auto` (face if found, else center) |
-| `tightness` | no | How tight the crop hugs the face: fraction of crop height filled by the head region, `0` (loose) – `1` (face-filling). Default `0.55`. Face-aware only. |
+| `tightness` | no | How tight the crop hugs the face: fraction of crop height filled by the head region, `0` (loose) – `1` (face-filling). Default `0.55`. Face-aware only. Zooms **around the eye line** — placement stays put. |
+| `eyeline` | no | Where the eye line sits in the crop: fraction of frame height from the top, `0.1` – `0.9`. Default `0.39` (≈ the old hardcoded 13% headroom); `0.30` = classic portrait placement (eyes a third of the way down). Face-aware only. |
 
 Defaults to a **square** crop if no size/aspect is given.
 
@@ -72,6 +73,7 @@ that reproduce the crop client-side:
   "aspect": "1:1",
   "gravity": "face",
   "tightness": 0.85,
+  "eyeline": 0.39,
   "face_detected": true,
   "object_fit": "cover",
   "object_position": "81.2% 0.0%",
@@ -139,11 +141,11 @@ the dedicated naive and smart crops side by side, and ready-to-use
 `/crop` and `/css` API URLs matching the selected aspect, gravity and
 tightness — the `/css` card also shows the object-position and a live
 preview of the image reframed entirely client-side. Aspect selector: 16:9 · 3:2 ·
-4:3 · 1:1 · 3:4 · 2:3 · 9:16, a tightness slider (0.30–0.90), and gravity
-radio buttons (face / auto / center) so the differences are visible side by
-side. `file` is optional — omit it to get the empty form (useful as a
-standalone tool page). The API URL card reflects the chosen gravity and
-tightness.
+4:3 · 1:1 · 3:4 · 2:3 · 9:16, tightness (0.30–0.90) and eyeline (0.10–0.70)
+sliders, and gravity radio buttons (face / auto / center) so the differences
+are visible side by side. `file` is optional — omit it to get the empty form
+(useful as a standalone tool page). The API URL card reflects the chosen
+gravity, tightness and eyeline.
 
 Response headers:
 - `Cache-Control: public, max-age=604800, immutable` — output is deterministic,
@@ -169,7 +171,10 @@ Errors (plain-text body, proper status):
    Haar cascade if the ONNX model is missing.
 3. **Crop** — the geometry (the actual "smart" part):
    - expand the face box upward for hair/headroom, downward for neck/shoulders
-   - place the top of the head ~13% down the crop so we don't decapitate
+   - place the (estimated) eye line at `eyeline` of the crop height: `0.39`
+     default (≈ the old 13% headroom constant), `0.30` = classic portrait
+     eyes-a-third-down; tightness zooms *around* the eye line, so zooming no
+     longer shifts the eyes in the frame
    - center horizontally on the face, clamp to image bounds
    - largest face wins in group shots; no face → center-crop fallback
 4. **Serve** — `/crop` encodes the crop as JPEG; `/css` converts the same crop
