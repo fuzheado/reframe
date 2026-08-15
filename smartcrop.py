@@ -31,7 +31,10 @@ YUNET = os.path.join(HERE, "models", "face_detection_yunet_2023mar.onnx")
 # Detector (cached -- model load is the expensive part, ~20-50 ms)
 # --------------------------------------------------------------------------- #
 _DET_CACHE = {}
-_DET_LOCK = threading.Lock()
+_DET_LOCK = threading.Lock()      # guards detector creation
+_DETECT_LOCK = threading.Lock()  # guards detector USE — YuNet detect() is not
+                                 # thread-safe (concurrent calls return garbage;
+                                 # observed live with Flask's threaded dev server)
 
 
 def parse_aspect(s):
@@ -65,7 +68,8 @@ def detect_face(img, score_thresh=0.6):
     det = get_detector(iw, ih, score_thresh)
     if det is not None:
         try:
-            _, faces = det.detect(img)
+            with _DETECT_LOCK:
+                _, faces = det.detect(img)
             if faces is not None and len(faces) > 0:
                 best = max(faces, key=lambda f: f[2] * f[3])
                 box = tuple(int(v) for v in best[:4])

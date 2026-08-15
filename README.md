@@ -19,6 +19,9 @@ configurable fraction of the crop height (`tightness`, default 0.55).
 Lower (0.3) = looser, more of the subject/scene visible; higher (0.9) = tight
 headshot. Face-aware only; naive center crops are unaffected.
 
+A "compare" mode can interactively show you the results based on your parameters.
+* [Click for the compare dashboard.](https://reframe.toolforge.org/compare?file=File%3A2022-02-27+Leichtathletik%2C+Deutsche+Hallenmeisterschaften+1DX+5389+by+Stepro.jpg&aspect=3%3A4&tightness=0.45&eyeline=0.25&gravity=auto)
+
 ![Example crop in the compare interface](screenshot.png)
 
 ## What's inside

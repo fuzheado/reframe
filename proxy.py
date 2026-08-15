@@ -34,6 +34,7 @@ from flask import Flask, Response, g, request
 
 from cache import DiskCache
 from compare_web import build_compare
+from landing import INDEX_HTML
 from ratelimit import RateLimiter
 from smartcrop import detect_face, smart_crop, center_crop, object_position, css_recipe
 
@@ -366,12 +367,9 @@ def css_style():
 
 @app.route("/")
 def index():
-    return ("<h2>Reframe proxy</h2>"
-            "<p><code>/crop?file=File:Name.jpg&width=300&height=200"
-            "&gravity=face</code></p>"
-            "<p><code>/css?file=File:Name.jpg&aspect=16:9&gravity=face</code>"
-            " — CSS object-position for client-side cropping</p>"
-            "<p><a href=\"/compare\">Interactive compare</a></p>")
+    resp = Response(INDEX_HTML, mimetype="text/html")
+    resp.headers["Cache-Control"] = "public, max-age=3600"
+    return resp
 
 
 # --------------------------------------------------------------------------- #
