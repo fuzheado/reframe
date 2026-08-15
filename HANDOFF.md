@@ -1,15 +1,18 @@
 # Reframe — HANDOFF (resume here)
 
-*Snapshot: 2026-08-14. A fresh session should read this file first, then
+*Snapshot: 2026-08-15. A fresh session should read this file first, then
 `README.md` for the full API/UX reference. The LLM wiki holds the atomic
 observations — `wiki_recall` will surface them.*
 
 ## Status in one line
 
-**Fully working, tested locally, and DEPLOYED to Toolforge** (2026-08-14):
-face-aware crops live at **https://reframe.toolforge.org** — `/crop` API and
-interactive `/compare` page verified (200 JPEG with `X-SmartCrop-Face: yes`,
-404/400 error paths correct). Built via **Toolforge Build Service from GitHub**
+**Fully working, tested locally, and DEPLOYED to Toolforge** (2026-08-14,
+updated 2026-08-15): face-aware crops live at **https://reframe.toolforge.org**
+— `/crop` (JPEG), `/css` (CSS properties for client-side crops, no pixels
+served), and the interactive `/compare` page (incl. a live client-side
+reframe preview). Verified live: 200 JPEG with `X-SmartCrop-Face: yes`,
+404/400 error paths, CSS-exact recipe pixel-matches `/crop` (MAE ~1–2/255).
+Built via **Toolforge Build Service from GitHub**
 (`github.com/fuzheado/reframe`, branch `main`).
 
 ## Project map
@@ -18,9 +21,10 @@ interactive `/compare` page verified (200 JPEG with `X-SmartCrop-Face: yes`,
 ~/Documents/ai/reframe/
 ├── README.md       full reference: API, compare page, deploy, production notes
 ├── HANDOFF.md      ← you are here
-├── smartcrop.py    core library: YuNet/Haar face detection + crop geometry + CLI
-├── proxy.py        Flask app: GET /crop (thumbnail-style JPEG API) + GET /compare (interactive page)
+├── smartcrop.py    core library: YuNet/Haar face detection + crop geometry + CLI (--css flag)
+├── proxy.py        Flask app: GET /crop (JPEG) + GET /css (CSS properties JSON) + GET /compare (interactive page)
 ├── compare.py      CLI dev tool: naive-vs-smart montage JPEG
+├── screenshot.png  README screenshot of the compare interface
 ├── compare_web.py  image compositing for the /compare page (labeled boxes + crops)
 ├── models/         face_detection_yunet_2023mar.onnx (~230 KB, Apache-2.0) + README
 ├── requirements.txt  flask, gunicorn, requests, numpy, opencv-python-headless>=4.8,<5
@@ -45,15 +49,18 @@ python smartcrop.py photo.jpg --size 300x300 --tightness 0.9   # tight headshot
 # Web app — http://localhost:8765
 python proxy.py
 #   /crop?file=File:Barack_Obama_family_portrait_2011.jpg&width=300&height=200
+#   /css?file=File:Jade_Raymond_Feb_2012-cropped.jpg&aspect=1:1&tightness=0.85
 #   /compare?file=Khagdaev_02.jpg&aspect=1:1&tightness=0.55&gravity=face
 ```
 
-Verified test cases (all passing, 2026-08-14): face crop on portrait, group
+Verified test cases (all passing, 2026-08-14/15): face crop on portrait, group
 photo (largest face wins), no-face → center fallback, SVG→PNG conversion via
 Special:FilePath, aspect-only (no resize), square default, 9:16 on landscape
 and portrait, all 5 filename input formats, gravity face/auto/center, tightness
-sweep 0.35/0.55/0.9, error paths (400/404/502/415). Test images live in
-`/tmp/smartcrop-test/`.
+sweep 0.35/0.55/0.9, error paths (400/404/502/415), CSS-mode: `css_exact`
+recipe pixel-matches `/crop` in a real browser (MAE 1.13 bare recipe, 2.07
+compare-page preview) while plain object-fit does NOT (MAE ~29 — CSS can't
+zoom). Test images live in `/tmp/smartcrop-test/`.
 
 ## API quick reference
 
@@ -66,10 +73,11 @@ for a client-side crop (no pixels served): `object-position` percentages,
 exactly (pixel-verified MAE ~1–2/255; object-fit CANNOT zoom — see README
 "zoom caveat"), `matches_exact` / `cover_window` honesty flags, `source.url`
 (any thumbnail size works — percentages are size-invariant), crop rect, and
-an example `<img>` tag. Same params, headers, and error semantics as `/crop`.
-Math: under `object-fit: cover`, visible-window left edge = `(iw−w)·p/100`, so
-`p = x/(iw−w)·100`. Verified pixel-identical to `/crop` (MAE 3.1/255 = JPEG
-noise) in a real browser (2026-08-15).
+an example `<div>` using the exact recipe. Same params, headers, and error
+semantics as `/crop`. Math: under `object-fit: cover`, visible-window left
+edge = `(iw−w)·p/100`, so `p = x/(iw−w)·100` (the same formula
+positions a `background-size: iw/w% ih/h%` zoom window — that recipe is
+the exact one; plain object-fit cannot zoom, see README "zoom caveat").
 
 - `file` — any of `File:Name.jpg`, `Name.jpg`, `Name_02.jpg`, or a full
   `commons.wikimedia.org/wiki/File:...` URL; normalized to canonical `File:` title
@@ -95,6 +103,14 @@ noise) in a real browser (2026-08-15).
 - **UA compliance**: `proxy.py` uses `$WIKIMEDIA_USER_AGENT` if set, else
   `Reframe/1.0 (…User:Fuzheado; andrew.lih@gmail.com)`. Never hit
   `Special:FilePath` without a descriptive UA.
+- **CSS cannot zoom**: plain `object-fit: cover` + `object-position` only
+  slides the LARGEST window of the target aspect — it does NOT reproduce
+  `/crop`'s tight crops (user-reported mismatch, Jade_Raymond_Feb_2012). The
+  exact recipe is `css_exact` (`background-size: iw/w% ih/h%` +
+  `background-position`), verified pixel-identical in-browser. `/compare`
+  preview uses it; the card shows both recipes + a zoom note. Any future
+  "CSS equivalence" claim must be verified against the browser rendering,
+  not formula-vs-formula.
 - **Stale port squatting**: a leftover server on :8765 caused phantom 404s
   during testing — `lsof -i :8765` before restarting.
 - README's original example `File:Umapine_(Wakonkonwelasonmi).jpg` does not
