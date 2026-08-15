@@ -19,6 +19,7 @@ Deploy on Toolforge (see README) -- bind to $PORT, add an OSI license.
 """
 import base64
 import io
+import json
 import os
 import re
 import urllib.parse
@@ -29,7 +30,7 @@ import requests
 from flask import Flask, Response, request
 
 from compare_web import build_compare
-from smartcrop import detect_face, smart_crop, center_crop
+from smartcrop import detect_face, smart_crop, center_crop, object_position
 
 app = Flask(__name__)
 
@@ -99,41 +100,64 @@ def normalize_file_input(s):
     return "File:" + s.replace(" ", "_")
 
 
-@app.route("/crop")
-def crop():
+def _parse_params():
+    """Shared validation for /crop and /css.
+
+    Returns ((canonical, aspect, aspect_s, w, h, tightness, gravity), None) on
+    success, or (None, error_message) — message is plain text for a 400.
+    """
     file_title = request.args.get("file", "")
     canonical = normalize_file_input(file_title)
     if canonical is None:
-        return Response("provide ?file= as a valid Commons file name "
-                        "(File:Name.jpg, Name.jpg, or a commons.wikimedia.org/wiki/File: URL)",
-                        status=400)
+        return None, ("provide ?file= as a valid Commons file name "
+                      "(File:Name.jpg, Name.jpg, or a commons.wikimedia.org/wiki/File: URL)")
 
-    # Target dimensions -> aspect ratio.
     w = request.args.get("width", type=int)
     h = request.args.get("height", type=int)
     aspect_s = request.args.get("aspect")
     if aspect_s:
         m = re.match(r"^(\d+):(\d+)$", aspect_s)
         if not m:
-            return Response("aspect must be like 16:9", status=400)
+            return None, "aspect must be like 16:9"
         aspect = int(m.group(1)) / int(m.group(2))
     elif w and h:
         aspect = w / h
     else:
         aspect = 1.0  # square default
 
-    tightness_s = request.args.get("tightness")
     tightness = 0.55
+    tightness_s = request.args.get("tightness")
     if tightness_s:
         try:
             tightness = float(tightness_s)
         except ValueError:
-            return Response("tightness must be a number like 0.55", status=400)
+            return None, "tightness must be a number like 0.55"
         if not (0 < tightness <= 1):
-            return Response("tightness must be between 0 (loose) and 1 (face-filling)",
-                            status=400)
+            return None, "tightness must be between 0 (loose) and 1 (face-filling)"
 
     gravity = request.args.get("gravity", "face")
+    if gravity not in ("face", "auto", "center"):
+        return None, "gravity must be face, auto, or center"
+    return (canonical, aspect, aspect_s, w, h, tightness, gravity), None
+
+
+def _compute_rect(img, aspect, tightness, gravity):
+    """Run detection + geometry. Returns (rect, eff) where eff is the effective
+    gravity ('face' | 'center') and rect is (x, y, w, h) in source pixels."""
+    ih, iw = img.shape[:2]
+    box = detect_face(img) if gravity in ("face", "auto") else None
+    eff = resolve_gravity(gravity, box)
+    rect = (smart_crop(img, aspect, box, tightness)
+            if eff == "face" else center_crop(iw, ih, aspect))
+    return rect, eff
+
+
+@app.route("/crop")
+def crop():
+    params, err = _parse_params()
+    if err:
+        return Response(err, status=400)
+    canonical, aspect, _aspect_s, w, h, tightness, gravity = params
 
     try:
         raw = fetch_commons(canonical)
@@ -145,11 +169,7 @@ def crop():
     if img is None:
         return Response("cannot decode image", status=415)
 
-    ih, iw = img.shape[:2]
-    box = detect_face(img) if gravity in ("face", "auto") else None
-    eff = resolve_gravity(gravity, box)
-    rect = (smart_crop(img, aspect, box, tightness)
-            if eff == "face" else center_crop(iw, ih, aspect))
+    rect, eff = _compute_rect(img, aspect, tightness, gravity)
     x, y, cw, ch = rect
     out = img[y:y + ch, x:x + cw]
 
@@ -167,11 +187,76 @@ def crop():
     return resp
 
 
+@app.route("/css")
+def css_style():
+    """Return CSS properties for a client-side crop instead of a cropped JPEG.
+
+    Same pipeline as /crop (fetch, detect, geometry) but the response is JSON:
+    the client loads the source image itself (any Commons thumbnail size — the
+    percentages are size-invariant) and reframes it in-browser with
+    `object-fit: cover` + `object-position`, or `background-size: cover` +
+    `background-position` for CSS backgrounds.
+    """
+    params, err = _parse_params()
+    if err:
+        return Response(err, status=400)
+    canonical, aspect, aspect_s, w, h, tightness, gravity = params
+
+    try:
+        raw = fetch_commons(canonical)
+    except requests.HTTPError:
+        return Response("file not found on Commons: " + canonical, status=404)
+    except requests.RequestException:
+        return Response("failed to fetch file from Commons", status=502)
+    img = decode_img(raw)
+    if img is None:
+        return Response("cannot decode image", status=415)
+
+    ih, iw = img.shape[:2]
+    rect, eff = _compute_rect(img, aspect, tightness, gravity)
+    x, y, cw, ch = rect
+    x_pct, y_pct = object_position(rect, iw, ih)
+    pos = f"{x_pct:.1f}% {y_pct:.1f}%"
+    src_url = ("https://commons.wikimedia.org/wiki/Special:FilePath/"
+               + urllib.parse.quote(canonical) + "?width=" + str(MAX_DETECT_SIDE))
+
+    payload = {
+        "file": canonical,
+        "aspect": aspect_s or (f"{w}:{h}" if w and h else "1:1"),
+        "gravity": gravity,
+        "tightness": tightness,
+        "face_detected": eff == "face",
+        "object_fit": "cover",
+        "object_position": pos,
+        "css": f"object-fit: cover; object-position: {pos};",
+        "background_css": f"background-size: cover; background-position: {pos};",
+        "crop_needed": not (cw == iw and ch == ih),
+        "crop_rect": {"x": x, "y": y, "w": cw, "h": ch},
+        "source": {
+            "url": src_url,
+            "width": iw,
+            "height": ih,
+            "note": "object-position is size-invariant: any thumbnail size of "
+                     "this image works (e.g. ?width=800).",
+        },
+        "example": (f'<img src="{src_url}" style="width: 300px; height: '
+                     f'{int(300 / aspect)}px; object-fit: cover; '
+                     f'object-position: {pos};">'),
+    }
+
+    resp = Response(json.dumps(payload, indent=2), mimetype="application/json")
+    resp.headers["Cache-Control"] = "public, max-age=604800, immutable"
+    resp.headers["X-SmartCrop-Face"] = "yes" if eff == "face" else "no"
+    return resp
+
+
 @app.route("/")
 def index():
     return ("<h2>Reframe proxy</h2>"
             "<p><code>/crop?file=File:Name.jpg&width=300&height=200"
             "&gravity=face</code></p>"
+            "<p><code>/css?file=File:Name.jpg&aspect=16:9&gravity=face</code>"
+            " — CSS object-position for client-side cropping</p>"
             "<p><a href=\"/compare\">Interactive compare</a></p>")
 
 

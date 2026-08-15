@@ -165,6 +165,31 @@ def smart_crop(img, aspect, box, tightness=0.55):
     return (x, y, w, h)
 
 
+def object_position(rect, iw, ih):
+    """Convert a crop rect (x, y, w, h) into CSS object-position percentages.
+
+    With `object-fit: cover` on a box of the same aspect ratio, setting
+    `object-position: p% q%` shows exactly the crop rect: the point p% across
+    the source image aligns with the point p% across the box, so the visible
+    window's left edge sits at (iw - w) * p/100 source pixels. Because both the
+    numerator and denominator scale with image size, the percentages are
+    size-invariant — they work for any thumbnail of the same image.
+
+    Returns (x_pct, y_pct) floats in [0, 100]. Dimensions that aren't cropped
+    (rect == full image) get 50% (the position is irrelevant there).
+    """
+    x, y, w, h = rect
+    if w >= iw:
+        x_pct = 50.0
+    else:
+        x_pct = 100.0 * x / (iw - w)
+    if h >= ih:
+        y_pct = 50.0
+    else:
+        y_pct = 100.0 * y / (ih - h)
+    return (max(0.0, min(x_pct, 100.0)), max(0.0, min(y_pct, 100.0)))
+
+
 def crop_image(img, aspect, gravity="face", tightness=0.55):
     """High-level helper: return (cropped_img, rect, face_box).
 
@@ -193,6 +218,8 @@ def main():
     ap.add_argument("--out", default=None, help="output path")
     ap.add_argument("--draw", action="store_true",
                     help="also save an annotated image showing face box + crop")
+    ap.add_argument("--css", action="store_true",
+                    help="also print the equivalent CSS object-position (client-side crop)")
     args = ap.parse_args()
 
     if args.aspect is None and args.size is None:
@@ -230,6 +257,11 @@ def main():
     print(f"tightness = {args.tightness}")
     print(f"crop     = ({x},{y}) {w}x{h}  aspect={w/h:.3f}")
     print(f"wrote    = {out}")
+
+    if args.css:
+        xp, yp = object_position((x, y, w, h), iw, ih)
+        print(f"css      = object-fit: cover; object-position: {xp:.1f}% {yp:.1f}%")
+        print(f"           (client-side crop: any box of aspect {w/h:.3f} with this style)")
 
     if args.draw:
         ann = img.copy()

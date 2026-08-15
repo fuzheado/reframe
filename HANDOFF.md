@@ -57,7 +57,16 @@ sweep 0.35/0.55/0.9, error paths (400/404/502/415). Test images live in
 
 ## API quick reference
 
-`GET /crop?file=...&width=&height=|aspect=&gravity=&tightness=`
+`GET /crop?file=...&width=&height=|aspect=&gravity=&tightness=` — cropped JPEG
+
+`GET /css?file=...&aspect=&gravity=&tightness=` — **JSON with CSS properties**
+for a client-side crop (no pixels served): `object-position` percentages,
+ready `css` / `background_css` strings, `source.url` for the client to load
+(any thumbnail size works — percentages are size-invariant), crop rect, and
+an example `<img>` tag. Same params, headers, and error semantics as `/crop`.
+Math: under `object-fit: cover`, visible-window left edge = `(iw−w)·p/100`, so
+`p = x/(iw−w)·100`. Verified pixel-identical to `/crop` (MAE 3.1/255 = JPEG
+noise) in a real browser (2026-08-15).
 
 - `file` — any of `File:Name.jpg`, `Name.jpg`, `Name_02.jpg`, or a full
   `commons.wikimedia.org/wiki/File:...` URL; normalized to canonical `File:` title

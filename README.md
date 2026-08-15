@@ -48,7 +48,7 @@ python proxy.py
 
 ## Proxy API
 
-`GET /crop?file=...&...`
+`GET /crop?file=...&...` — returns the cropped JPEG
 
 | Param | Required | Description |
 |-------|:--------:|-------------|
@@ -59,6 +59,47 @@ python proxy.py
 | `tightness` | no | How tight the crop hugs the face: fraction of crop height filled by the head region, `0` (loose) – `1` (face-filling). Default `0.55`. Face-aware only. |
 
 Defaults to a **square** crop if no size/aspect is given.
+
+`GET /css?file=...&...` — **CSS mode**: no pixels served. Same pipeline
+(fetch, detect, geometry), but the response is JSON with the CSS properties
+that reproduce the crop client-side:
+
+```json
+{
+  "file": "File:Barack_Obama_family_portrait_2011.jpg",
+  "aspect": "16:9",
+  "gravity": "face",
+  "tightness": 0.55,
+  "face_detected": true,
+  "object_fit": "cover",
+  "object_position": "99.7% 3.3%",
+  "css": "object-fit: cover; object-position: 99.7% 3.3%;",
+  "background_css": "background-size: cover; background-position: 99.7% 3.3%;",
+  "crop_needed": true,
+  "crop_rect": {"x": 307, "y": 10, "w": 972, "h": 546},
+  "source": {"url": "https://commons.wikimedia.org/wiki/Special:FilePath/...",
+             "width": 1280, "height": 853, "note": "..."},
+  "example": "<img src=\"...\" style=\"width: 300px; height: 168px; ...\">"
+}
+```
+
+Same params as `/crop` (`file`, `width`/`height` or `aspect`, `gravity`,
+`tightness`), same headers (`Cache-Control`, `X-SmartCrop-Face`), same error
+semantics (400/404/502/415). The client loads `source.url` itself and applies
+the style to any box of the target aspect:
+
+```html
+<img src="<source.url>" style="width: 300px; height: 168px; object-fit: cover; object-position: 99.7% 3.3%;">
+<!-- or as a CSS background: -->
+<div style="width: 300px; height: 168px; background: url(<source.url>) no-repeat; background-size: cover; background-position: 99.7% 3.3%;"></div>
+```
+
+**Why it works:** under `object-fit: cover`, the visible window's left edge
+sits at `(img_w − crop_w) × p/100` source pixels when `object-position: p%` —
+so `p = crop_x / (img_w − crop_w) × 100` reproduces the crop exactly (same
+for the vertical axis). The percentages are **size-invariant**: they hold for
+*any* thumbnail size of the same image, so the client can pick its own
+resolution. Verified pixel-identical to `/crop` (MAE < 3.1/255, JPEG noise).
 
 ### File name formats
 
@@ -106,6 +147,9 @@ Errors (plain-text body, proper status):
    - place the top of the head ~13% down the crop so we don't decapitate
    - center horizontally on the face, clamp to image bounds
    - largest face wins in group shots; no face → center-crop fallback
+4. **Serve** — `/crop` encodes the crop as JPEG; `/css` converts the same crop
+   rect into `object-position` percentages (see [CSS mode](#css-mode-1) —
+   CLI: `python smartcrop.py photo.jpg --aspect 16:9 --css`).
 
 ## Detector options (all local, no GPU)
 
