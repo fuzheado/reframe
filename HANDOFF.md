@@ -108,7 +108,10 @@ noise) in a real browser (2026-08-15).
    then `toolforge webservice buildservice restart`.
 2. **Production hardening** (README "Production notes"): rate limiting and/or
    a disk cache before wide public use — the proxy currently has neither.
-3. **Optional**: MediaPipe BlazeFace swap for profile/tilted faces (replace
-   `detect_face()` in smartcrop.py; crop geometry unchanged).
+3. **Optional**: detector upgrade for profile/tilted/small faces — SCRFD-2.5G
+   (best accuracy/speed, ~3 MB, no new pip dep via `cv2.dnn`) or MediaPipe
+   BlazeFace; both plug into `detect_face()` in smartcrop.py (crop geometry
+   unchanged). See README "Detector options" for the full ladder incl.
+   WIDER FACE hard AP figures.
 4. **Optional**: per-call headroom control (the 0.13 constant) if tightness
    alone isn't enough for some consumers.

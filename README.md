@@ -8,7 +8,7 @@ this crops the image so the **face stays visible and well-composed** — instead
 of the naive center-crop that lands on the torso.
 
 ```
-https://your-tool.toolforge.org/crop?file=File:Name.jpg&width=300&height=200&gravity=face
+https://reframe.toolforge.org/crop?file=File:Name.jpg&width=300&height=200&gravity=face
 ```
 
 It's a miniature ["thumbor"](https://github.com/thumbor/thumbor) for Commons:
@@ -18,6 +18,8 @@ Tightness: the face-aware crop sizes itself so the head region fills a
 configurable fraction of the crop height (`tightness`, default 0.55).
 Lower (0.3) = looser, more of the subject/scene visible; higher (0.9) = tight
 headshot. Face-aware only; naive center crops are unaffected.
+
+![Example crop in the compare interface](screenshot.png)
 
 ## What's inside
 
@@ -153,14 +155,49 @@ Errors (plain-text body, proper status):
 
 ## Detector options (all local, no GPU)
 
-| Detector | Size | Dependency | Accuracy | Notes |
-|----------|------|-------------|----------|-------|
-| **YuNet** | 230 KB | `opencv-python-headless` | good | ✅ default; ships in `models/` |
-| Haar cascade | 0 KB | `opencv-python-headless` | OK | zero-download fallback; misses profile/tilted faces |
-| MediaPipe BlazeFace | ~2 MB | `mediapipe` | best | upgrade path for tough cases (profile, tilted) |
+| Detector | Size | Dependency | WIDER FACE hard AP | Notes |
+|----------|------|-------------|--------------------|-------|
+| **YuNet** | 230 KB | `opencv-python-headless` | 75.0 | ✅ default; ships in `models/`; ~1.6 ms @ 320² on CPU |
+| Haar cascade | 0 KB | `opencv-python-headless` | — | zero-download fallback; misses profile/tilted faces |
+| MediaPipe BlazeFace | 0.2–1.1 MB | `mediapipe` | n/a¹ | mobile-tuned; good on profile/tilted close-ups |
+| SCRFD-500M | 2.5 MB | none (`cv2.dnn`) | 68.5 | smallest SCRFD; better easy/medium, worse hard than YuNet |
+| **SCRFD-2.5G** | 3.3 MB | none (`cv2.dnn`) | **77.1** | **best accuracy/speed balance**; official ONNX export |
+| SCRFD-10G | 17 MB | none (`cv2.dnn`) | 82.8 | accuracy-first; heavy CPU cost |
+| RetinaFace (ResNet-50) | ~100+ MB | `onnxruntime` | 91.4² | strongest classic detector; too slow for a thumbnail API |
 
-To switch to MediaPipe, replace `detect_face()` in `smartcrop.py` — the crop
-geometry is unchanged.
+¹ BlazeFace reports Google-internal smartphone-camera recall (~99%), not
+WIDER FACE — not comparable.
+² RetinaFace paper's top configuration; MobileNet variants are much lighter
+but score substantially lower.
+
+Benchmark caveat: hard-set AP figures come from each model's own paper/docs
+(single-scale), so they're directional, not apples-to-apples. For this
+service's actual job — find the **single largest face** in a Commons portrait —
+the practical ladder is:
+
+- **Default (today): YuNet** — tiny, ~1.6 ms, zero new deps, and Commons
+  portraits are mostly frontal. 75.0 hard AP is plenty for
+  largest-face-wins.
+- **If profile/tilted or small faces matter: SCRFD-2.5G** — 77.1 hard AP at
+  ~3 MB, loads via `cv2.dnn.readNetFromONNX()` with **no new pip dependency**
+  (same cached-detector pattern as YuNet).
+- **Max accuracy: SCRFD-10G** (82.8) or RetinaFace (91.4) — only if a
+  deployment can afford 100+ ms CPU per request; overkill for a thumbnail
+  service.
+- **MediaPipe BlazeFace** — the choice only if you want the `mediapipe`
+  package's extras (landmarks, face mesh). As a pure detector it's
+  mobile-tuned and less robust on small/occluded faces than SCRFD.
+
+### Swapping the detector
+
+All detectors plug into `detect_face()` in `smartcrop.py` — the crop geometry
+is unchanged. YuNet loads through `cv2.FaceDetectorYN`; SCRFD/RetinaFace ONNX
+exports load through `cv2.dnn.readNetFromONNX` (or `onnxruntime` for higher
+throughput); BlazeFace needs the `mediapipe` pip package. Whatever the
+backend, keep the cached-singleton pattern (lazy-load once per process,
+guard with a lock — the YuNet detector is not thread-safe) and return a
+single `(x, y, w, h)` box for the largest face: the geometry layer doesn't
+care where the box came from.
 
 ## Deploying to Toolforge
 
