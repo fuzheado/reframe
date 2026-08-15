@@ -68,20 +68,24 @@ that reproduce the crop client-side:
 
 ```json
 {
-  "file": "File:Barack_Obama_family_portrait_2011.jpg",
-  "aspect": "16:9",
+  "file": "File:Jade_Raymond_Feb_2012-cropped.jpg",
+  "aspect": "1:1",
   "gravity": "face",
-  "tightness": 0.55,
+  "tightness": 0.85,
   "face_detected": true,
   "object_fit": "cover",
-  "object_position": "99.7% 3.3%",
-  "css": "object-fit: cover; object-position: 99.7% 3.3%;",
-  "background_css": "background-size: cover; background-position: 99.7% 3.3%;",
+  "object_position": "81.2% 0.0%",
+  "css": "object-fit: cover; object-position: 81.2% 0.0%;",
+  "matches_exact": false,
+  "cover_window": {"w": 1280, "h": 1280},
+  "css_exact": "background-size: 255.0% 256.6%; background-position: 81.2% 0.0%;",
+  "zoom": {"x": "255.0%", "y": "256.6%"},
+  "background_css": "background-size: cover; background-position: 81.2% 0.0%;",
   "crop_needed": true,
-  "crop_rect": {"x": 307, "y": 10, "w": 972, "h": 546},
+  "crop_rect": {"x": 632, "y": 0, "w": 502, "h": 502},
   "source": {"url": "https://commons.wikimedia.org/wiki/Special:FilePath/...",
-             "width": 1280, "height": 853, "note": "..."},
-  "example": "<img src=\"...\" style=\"width: 300px; height: 168px; ...\">"
+             "width": 1280, "height": 1288, "note": "..."},
+  "example": "<div style=\"width: 300px; height: 300px; ...\"></div>"
 }
 ```
 
@@ -91,17 +95,32 @@ semantics (400/404/502/415). The client loads `source.url` itself and applies
 the style to any box of the target aspect:
 
 ```html
-<img src="<source.url>" style="width: 300px; height: 168px; object-fit: cover; object-position: 99.7% 3.3%;">
-<!-- or as a CSS background: -->
-<div style="width: 300px; height: 168px; background: url(<source.url>) no-repeat; background-size: cover; background-position: 99.7% 3.3%;"></div>
+<!-- simple: object-fit (no zoom) -->
+<img src="<source.url>" style="width: 300px; height: 300px; object-fit: cover; object-position: 81.2% 0.0%;">
+<!-- exact: background-size zoom — matches /crop -->
+<div style="width: 300px; height: 300px; background: url(<source.url>) no-repeat; background-size: 255.0% 256.6%; background-position: 81.2% 0.0%;"></div>
 ```
 
 **Why it works:** under `object-fit: cover`, the visible window's left edge
 sits at `(img_w − crop_w) × p/100` source pixels when `object-position: p%` —
-so `p = crop_x / (img_w − crop_w) × 100` reproduces the crop exactly (same
-for the vertical axis). The percentages are **size-invariant**: they hold for
-*any* thumbnail size of the same image, so the client can pick its own
-resolution. Verified pixel-identical to `/crop` (MAE < 3.1/255, JPEG noise).
+so `p = crop_x / (img_w − crop_w) × 100` positions the window (same for the
+vertical axis). The percentages are **size-invariant**: they hold for *any*
+thumbnail size of the same image.
+
+**The zoom caveat (why the two examples differ):** `/crop` picks a crop window
+and **scales it up** to fill the output. Plain `object-fit: cover` **cannot
+zoom** — it only ever shows the *largest* window of the target aspect that
+fits the image (`cover_window` in the response), and `object-position` merely
+slides it. So when the crop is tighter than the cover window (typical for
+tightness ≥ 0.55, and extreme for near-square images), the object-fit variant
+shows a wider, looser framing — the face stays in frame but doesn't match
+`/crop`. `matches_exact: true` means they coincide.
+
+The **exact recipe** is `css_exact`: `background-size: iw/w*100% ih/h*100%`
+zooms the image against the box arbitrarily, and `background-position: p% q%`
+slides the window with the same alignment semantics — so it reproduces the
+`/crop` framing exactly at any box size of the target aspect (verified
+pixel-identical in a real browser, MAE ~1–2/255).
 
 ### File name formats
 

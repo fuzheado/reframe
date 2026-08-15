@@ -190,6 +190,38 @@ def object_position(rect, iw, ih):
     return (max(0.0, min(x_pct, 100.0)), max(0.0, min(y_pct, 100.0)))
 
 
+def css_recipe(rect, iw, ih, aspect):
+    """CSS properties that reproduce a crop rect client-side.
+
+    Returns (position, bg_size, matches_exact, cover_window):
+
+    - position: `p% q%` — works with object-position AND background-position
+      (same alignment semantics: the point at p% of the image aligns with p%
+      of the box). Size-invariant: valid for any thumbnail of the image.
+    - bg_size: `W% H%` for background-size — this is what makes the crop
+      EXACT. Plain `object-fit: cover` cannot zoom: it only shows the largest
+      window of the target aspect that fits the image, and object-position can
+      merely slide it. background-size percentages scale the image against the
+      box, so `background-size: iw/w*100% ih/h*100%` zooms the exact crop
+      window into view.
+    - matches_exact: True when the crop rect IS the cover window (i.e. plain
+      object-fit + object-position alone already reproduce the crop).
+    - cover_window: (w, h) in source px of the largest aspect window.
+    """
+    x, y, w, h = rect
+    x_pct, y_pct = object_position(rect, iw, ih)
+    pos = f"{x_pct:.1f}% {y_pct:.1f}%"
+    if iw / ih >= aspect:
+        cov_w, cov_h = aspect * ih, ih
+    else:
+        cov_w, cov_h = iw, iw / aspect
+    matches_exact = abs(w - cov_w) < 2 and abs(h - cov_h) < 2
+    bg_w = 100.0 * iw / w
+    bg_h = 100.0 * ih / h
+    bg_size = f"{bg_w:.1f}% {bg_h:.1f}%"
+    return pos, bg_size, matches_exact, (round(cov_w), round(cov_h))
+
+
 def crop_image(img, aspect, gravity="face", tightness=0.55):
     """High-level helper: return (cropped_img, rect, face_box).
 
@@ -259,8 +291,9 @@ def main():
     print(f"wrote    = {out}")
 
     if args.css:
-        xp, yp = object_position((x, y, w, h), iw, ih)
-        print(f"css      = object-fit: cover; object-position: {xp:.1f}% {yp:.1f}%")
+        pos, bg_size, _m, _cov = css_recipe((x, y, w, h), iw, ih, aspect)
+        print(f"css      = object-fit: cover; object-position: {pos}")
+        print(f"           exact: background-size: {bg_size}; background-position: {pos}")
         print(f"           (client-side crop: any box of aspect {w/h:.3f} with this style)")
 
     if args.draw:

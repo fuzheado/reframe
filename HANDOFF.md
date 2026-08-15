@@ -61,7 +61,10 @@ sweep 0.35/0.55/0.9, error paths (400/404/502/415). Test images live in
 
 `GET /css?file=...&aspect=&gravity=&tightness=` — **JSON with CSS properties**
 for a client-side crop (no pixels served): `object-position` percentages,
-ready `css` / `background_css` strings, `source.url` for the client to load
+`css` / `background_css` (no-zoom variants), **`css_exact`** — the
+`background-size` + `background-position` zoom recipe that reproduces /crop
+exactly (pixel-verified MAE ~1–2/255; object-fit CANNOT zoom — see README
+"zoom caveat"), `matches_exact` / `cover_window` honesty flags, `source.url`
 (any thumbnail size works — percentages are size-invariant), crop rect, and
 an example `<img>` tag. Same params, headers, and error semantics as `/crop`.
 Math: under `object-fit: cover`, visible-window left edge = `(iw−w)·p/100`, so

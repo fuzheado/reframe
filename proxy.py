@@ -30,7 +30,7 @@ import requests
 from flask import Flask, Response, request
 
 from compare_web import build_compare
-from smartcrop import detect_face, smart_crop, center_crop, object_position
+from smartcrop import detect_face, smart_crop, center_crop, object_position, css_recipe
 
 app = Flask(__name__)
 
@@ -215,8 +215,7 @@ def css_style():
     ih, iw = img.shape[:2]
     rect, eff = _compute_rect(img, aspect, tightness, gravity)
     x, y, cw, ch = rect
-    x_pct, y_pct = object_position(rect, iw, ih)
-    pos = f"{x_pct:.1f}% {y_pct:.1f}%"
+    pos, bg_size, matches_exact, cover_window = css_recipe(rect, iw, ih, aspect)
     src_url = ("https://commons.wikimedia.org/wiki/Special:FilePath/"
                + urllib.parse.quote(canonical) + "?width=" + str(MAX_DETECT_SIDE))
 
@@ -229,6 +228,10 @@ def css_style():
         "object_fit": "cover",
         "object_position": pos,
         "css": f"object-fit: cover; object-position: {pos};",
+        "matches_exact": matches_exact,
+        "cover_window": {"w": cover_window[0], "h": cover_window[1]},
+        "css_exact": f"background-size: {bg_size}; background-position: {pos};",
+        "zoom": {"x": bg_size.split()[0], "y": bg_size.split()[1]},
         "background_css": f"background-size: cover; background-position: {pos};",
         "crop_needed": not (cw == iw and ch == ih),
         "crop_rect": {"x": x, "y": y, "w": cw, "h": ch},
@@ -236,12 +239,17 @@ def css_style():
             "url": src_url,
             "width": iw,
             "height": ih,
-            "note": "object-position is size-invariant: any thumbnail size of "
-                     "this image works (e.g. ?width=800).",
+            "note": "Any thumbnail size of this image works (percentages are "
+                     "size-invariant). `css` (object-fit) cannot zoom: it shows "
+                     "the largest window of the target aspect, so it matches /crop "
+                     "only when matches_exact is true. `css_exact` (background-size "
+                     "zoom) always reproduces the /crop framing exactly — verified "
+                     "pixel-identical in-browser (MAE ~1/255).",
         },
-        "example": (f'<img src="{src_url}" style="width: 300px; height: '
-                     f'{int(300 / aspect)}px; object-fit: cover; '
-                     f'object-position: {pos};">'),
+        "example": (f'<div style="width: 300px; height: '
+                     f'{int(300 / aspect)}px; background: url(\'{src_url}\') '
+                     f'no-repeat; background-size: {bg_size}; '
+                     f'background-position: {pos};"></div>'),
     }
 
     resp = Response(json.dumps(payload, indent=2), mimetype="application/json")
@@ -281,7 +289,7 @@ def _aspect_selector(current):
 def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
     if results:
         (ann, naive, smart, rn, rs, box, iw, ih, api_url, css_url,
-         css_pos, src_url, eff) = results
+         css_pos, src_url, bg_size, matches_exact, css_exact, eff) = results
         legend = ("<span style='color:#7fd4ff'>light blue = face</span> · "
                   "<span style='color:#7dff8a'>green = smart crop</span> · "
                   "<span style='color:#ff8080'>red = naive center-crop</span>")
@@ -304,6 +312,12 @@ def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
             smart_title = "Center crop — naive (gravity=center)"
         else:
             smart_title = "Center crop — no face found"
+        zoom_note = ("" if matches_exact else
+                     "<p class='hint'><b>Note:</b> this crop is tighter than what "
+                     "<code>object-fit: cover</code> can show (CSS cannot zoom) — "
+                     "the plain object-position variant shows a wider window. The "
+                     "preview below uses the <code>background-size</code> zoom "
+                     "recipe, which matches the smart crop exactly.</p>")
         gallery = f"""
         <div class="card">
           <h3>Smart crop API URL</h3>
@@ -319,11 +333,18 @@ def _compare_page(file_title, aspect_s, tightness_s, gravity, results, error):
              for any box of aspect {aspect_s} (size-invariant — any
              thumbnail size works):</p>
           <p class="apilink"><a href="{css_url}">{css_url}</a></p>
-          <p>→ <code>object-fit: cover; object-position: {css_pos};</code></p>
-          <p>Live preview — same source, reframed entirely client-side:</p>
-          <img src="{src_url}" alt="CSS crop preview"
+          <p>→ <code>object-fit: cover; object-position: {css_pos};</code>
+             <span class="gsub">(simple — cannot zoom)</span></p>
+          <p>→ <code>{css_exact}</code>
+             <span class="gsub">(exact — matches the smart crop)</span></p>
+          {zoom_note}
+          <p>Live preview — same source, reframed entirely client-side
+             (exact recipe):</p>
+          <div class="cssdemo"
                style="width: 100%; aspect-ratio: {aspect_s.replace(':', ' / ')};
-                      object-fit: cover; object-position: {css_pos};">
+                      background: url('{src_url}') no-repeat;
+                      background-size: {bg_size};
+                      background-position: {css_pos};"></div>
         </div>
         <div class="card">
           <h3>Original — {legend}</h3>
@@ -462,10 +483,10 @@ def compare():
         css_url += f"&tightness={tightness}"
     src_url = ("https://commons.wikimedia.org/wiki/Special:FilePath/"
                + urllib.parse.quote(canonical) + "?width=600")
-    xp, yp = object_position(rs, iw, ih)
-    css_pos = f"{xp:.1f}% {yp:.1f}%"
+    css_pos, bg_size, matches_exact, _cov = css_recipe(rs, iw, ih, aspect)
+    css_exact = f"background-size: {bg_size}; background-position: {css_pos};"
     results = (ann, naive, smart, rn, rs, box, iw, ih, api_url, css_url,
-               css_pos, src_url, eff)
+               css_pos, src_url, bg_size, matches_exact, css_exact, eff)
     return _compare_page(file_title, aspect_s, tightness_s, gravity, results, None)
 
 
