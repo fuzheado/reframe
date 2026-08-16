@@ -3,6 +3,8 @@
 Face-aware image cropping for Wikimedia Commons, exposed as a **URL you can use
 like a thumbnail**.
 
+Try it: [](https://reframe.toolforge.org)
+
 Given a Commons file name and a target window (landscape, square, portrait),
 this crops the image so the **face stays visible and well-composed** — instead
 of the naive center-crop that lands on the torso.
